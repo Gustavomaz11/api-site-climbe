@@ -174,7 +174,7 @@ app.get("/api/arquivos/artigos", async (req, res) => {
 
     do {
       const response = await drive.files.list({
-        q: `'${process.env.GOOGLE_DRIVE_FOLDER_CRIPTO}' in parents and trashed = false`,
+        q: `'${process.env.GOOGLE_DRIVE_FOLDER_ARTIGO}' in parents and trashed = false`,
         fields:
           "nextPageToken, files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
         orderBy: "createdTime desc",
