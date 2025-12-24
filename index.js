@@ -47,10 +47,42 @@ const auth = new google.auth.GoogleAuth({
 const drive = google.drive({ version: "v3", auth });
 
 // ===== Endpoint =====
-app.get("/api/arquivos", async (req, res) => {
+app.get("/api/arquivos/nacional", async (req, res) => {
   try {
     const response = await drive.files.list({
       q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false`,
+      fields:
+        "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
+      orderBy: "createdTime desc",
+    });
+
+    res.json(response.data.files);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
+  }
+});
+
+app.get("/api/arquivos/internacional", async (req, res) => {
+  try {
+    const response = await drive.files.list({
+      q: `'${process.env.GOOGLE_DRIVE_FOLDER_INTERNACIONAL}' in parents and trashed = false`,
+      fields:
+        "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
+      orderBy: "createdTime desc",
+    });
+
+    res.json(response.data.files);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
+  }
+});
+
+app.get("/api/arquivos/cripto", async (req, res) => {
+  try {
+    const response = await drive.files.list({
+      q: `'${process.env.GOOGLE_DRIVE_FOLDER_CRIPTO}' in parents and trashed = false`,
       fields:
         "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
       orderBy: "createdTime desc",
