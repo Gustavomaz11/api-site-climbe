@@ -1,15 +1,18 @@
+require("dotenv").config();
+
 const express = require("express");
 const { google } = require("googleapis");
-const fs = require("fs");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// Autenticação Google
 const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(
-    fs.readFileSync("./service-account.json", "utf8")
-  ),
+  credentials: {
+    type: "service_account",
+    project_id: process.env.GOOGLE_PROJECT_ID,
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+  },
   scopes: ["https://www.googleapis.com/auth/drive.readonly"],
 });
 
@@ -18,25 +21,23 @@ const drive = google.drive({
   auth,
 });
 
-// Endpoint que retorna os arquivos da pasta
+// Endpoint
 app.get("/api/arquivos", async (req, res) => {
   try {
-    const PASTA_ID = "1nBk343RUHKeUlxH_x7RAG7JK7nN5bFis";
-
     const response = await drive.files.list({
-      q: `'${PASTA_ID}' in parents and trashed = false`,
+      q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false`,
       fields:
         "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
       orderBy: "createdTime desc",
     });
 
     res.json(response.data.files);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao buscar arquivos do Drive" });
+  } catch (err) {
+    console.error("Erro Google Drive:", err.message);
+    res.status(500).json({ error: "Erro ao acessar Google Drive" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
+  console.log(`http://localhost:3000/api/arquivos`);
 });
