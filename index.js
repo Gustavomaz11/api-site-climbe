@@ -49,69 +49,134 @@ const drive = google.drive({ version: "v3", auth });
 // ===== Endpoint =====
 app.get("/api/arquivos/nacional", async (req, res) => {
   try {
-    const response = await drive.files.list({
-      q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false`,
-      fields:
-        "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
-      orderBy: "createdTime desc",
-    });
+    let arquivos = [];
+    let pageToken = null;
 
-    res.json(response.data.files);
+    do {
+      const response = await drive.files.list({
+        q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false`,
+        fields:
+          "nextPageToken, files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
+        orderBy: "createdTime desc",
+        pageSize: 100,
+        pageToken: pageToken,
+      });
+
+      arquivos = arquivos.concat(response.data.files);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+
+    res.json(arquivos);
   } catch (err) {
-    console.error(err.message);
+    console.error("Erro Drive:", err.message);
     res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
   }
 });
 
-// alteração
-
-app.get("/api/arquivos/artigos", async (req, res) => {
+app.get("/api/arquivos/nacional", async (req, res) => {
   try {
-    const response = await drive.files.list({
-      q: `'${process.env.GOOGLE_DRIVE_FOLDER_ARTIGO}' in parents and trashed = false`,
-      fields:
-        "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
-      orderBy: "createdTime desc",
-    });
+    let arquivos = [];
+    let pageToken = null;
 
-    res.json(response.data.files);
+    do {
+      const response = await drive.files.list({
+        q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false`,
+        fields:
+          "nextPageToken, files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
+        orderBy: "createdTime desc",
+        pageSize: 100,
+        pageToken: pageToken,
+      });
+
+      arquivos = arquivos.concat(response.data.files);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+
+    res.json(arquivos);
   } catch (err) {
-    console.error(err.message);
+    console.error("Erro Drive:", err.message);
     res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
   }
 });
 
 app.get("/api/arquivos/internacional", async (req, res) => {
   try {
-    const response = await drive.files.list({
-      q: `'${process.env.GOOGLE_DRIVE_FOLDER_INTERNACIONAL}' in parents and trashed = false`,
-      fields:
-        "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
-      orderBy: "createdTime desc",
-    });
+    let arquivos = [];
+    let pageToken = null;
 
-    res.json(response.data.files);
+    do {
+      const response = await drive.files.list({
+        q: `'${process.env.GOOGLE_DRIVE_FOLDER_INTERNACIONAL}' in parents and trashed = false`,
+        fields:
+          "nextPageToken, files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
+        orderBy: "createdTime desc",
+        pageSize: 100,
+        pageToken: pageToken,
+      });
+
+      arquivos = arquivos.concat(response.data.files);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+
+    res.json(arquivos);
   } catch (err) {
-    console.error(err.message);
+    console.error("Erro Drive:", err.message);
     res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
   }
 });
 
 app.get("/api/arquivos/cripto", async (req, res) => {
   try {
-    const response = await drive.files.list({
-      q: `'${process.env.GOOGLE_DRIVE_FOLDER_CRIPTO}' in parents and trashed = false`,
-      fields:
-        "files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
-      orderBy: "createdTime desc",
-    });
+    let arquivos = [];
+    let pageToken = null;
 
-    res.json(response.data.files);
+    do {
+      const response = await drive.files.list({
+        q: `'${process.env.GOOGLE_DRIVE_FOLDER_CRIPTO}' in parents and trashed = false`,
+        fields:
+          "nextPageToken, files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
+        orderBy: "createdTime desc",
+        pageSize: 100,
+        pageToken: pageToken,
+      });
+
+      arquivos = arquivos.concat(response.data.files);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+
+    res.json(arquivos);
   } catch (err) {
-    console.error(err.message);
+    console.error("Erro Drive:", err.message);
     res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
   }
 });
+
+app.get("/api/arquivos/artigos", async (req, res) => {
+  try {
+    let arquivos = [];
+    let pageToken = null;
+
+    do {
+      const response = await drive.files.list({
+        q: `'${process.env.GOOGLE_DRIVE_FOLDER_CRIPTO}' in parents and trashed = false`,
+        fields:
+          "nextPageToken, files(id, name, mimeType, webViewLink, webContentLink, createdTime)",
+        orderBy: "createdTime desc",
+        pageSize: 100,
+        pageToken: pageToken,
+      });
+
+      arquivos = arquivos.concat(response.data.files);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+
+    res.json(arquivos);
+  } catch (err) {
+    console.error("Erro Drive:", err.message);
+    res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`API rodando na porta ${PORT}`);
