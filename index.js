@@ -1,11 +1,39 @@
 require("dotenv").config();
 
 const express = require("express");
+const cors = require("cors");
 const { google } = require("googleapis");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Domínios permitidos
+const allowedOrigins = [
+  "https://climbe.com.br",
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5500"
+];
+
+// Configuração CORS
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Permite chamadas sem origin (Postman, servidor)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS não permitido para esta origem"));
+      }
+    },
+    methods: ["GET"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// ===== Google Drive Auth =====
 const auth = new google.auth.GoogleAuth({
   credentials: {
     type: "service_account",
@@ -16,12 +44,9 @@ const auth = new google.auth.GoogleAuth({
   scopes: ["https://www.googleapis.com/auth/drive.readonly"],
 });
 
-const drive = google.drive({
-  version: "v3",
-  auth,
-});
+const drive = google.drive({ version: "v3", auth });
 
-// Endpoint
+// ===== Endpoint =====
 app.get("/api/arquivos", async (req, res) => {
   try {
     const response = await drive.files.list({
@@ -33,11 +58,11 @@ app.get("/api/arquivos", async (req, res) => {
 
     res.json(response.data.files);
   } catch (err) {
-    console.error("Erro Google Drive:", err.message);
-    res.status(500).json({ error: "Erro ao acessar Google Drive" });
+    console.error(err.message);
+    res.status(500).json({ error: "Erro ao buscar arquivos do Drive" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`http://localhost:3000/api/arquivos`);
+  console.log(`API rodando na porta ${PORT}`);
 });
