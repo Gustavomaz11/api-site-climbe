@@ -66,6 +66,10 @@ app.get("/api/arquivos/nacional", async (req, res) => {
       pageToken = response.data.nextPageToken;
     } while (pageToken);
 
+    arquivos.sort(
+      (a, b) => new Date(b.createdTime) - new Date(a.createdTime)
+    );
+
     res.json(arquivos);
   } catch (err) {
     console.error("Erro Drive:", err.message);
@@ -91,6 +95,10 @@ app.get("/api/arquivos/nacional", async (req, res) => {
       arquivos = arquivos.concat(response.data.files);
       pageToken = response.data.nextPageToken;
     } while (pageToken);
+
+    arquivos.sort(
+      (a, b) => new Date(b.createdTime) - new Date(a.createdTime)
+    );
 
     res.json(arquivos);
   } catch (err) {
@@ -118,6 +126,10 @@ app.get("/api/arquivos/internacional", async (req, res) => {
       pageToken = response.data.nextPageToken;
     } while (pageToken);
 
+    arquivos.sort(
+      (a, b) => new Date(b.createdTime) - new Date(a.createdTime)
+    );
+
     res.json(arquivos);
   } catch (err) {
     console.error("Erro Drive:", err.message);
@@ -143,6 +155,10 @@ app.get("/api/arquivos/cripto", async (req, res) => {
       arquivos = arquivos.concat(response.data.files);
       pageToken = response.data.nextPageToken;
     } while (pageToken);
+
+    arquivos.sort(
+      (a, b) => new Date(b.createdTime) - new Date(a.createdTime)
+    );
 
     res.json(arquivos);
   } catch (err) {
@@ -170,6 +186,10 @@ app.get("/api/arquivos/artigos", async (req, res) => {
       pageToken = response.data.nextPageToken;
     } while (pageToken);
 
+    arquivos.sort(
+      (a, b) => new Date(b.createdTime) - new Date(a.createdTime)
+    );
+
     res.json(arquivos);
   } catch (err) {
     console.error("Erro Drive:", err.message);
@@ -179,5 +199,5 @@ app.get("/api/arquivos/artigos", async (req, res) => {
 
 
 app.listen(PORT, () => {
-  console.log(`API rodando na porta ${PORT}`);
+  console.log(`API rodando com sucesso!`);
 });
