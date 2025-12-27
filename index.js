@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 3000;
 // Domínios permitidos
 const allowedOrigins = [
   "https://climbe.com.br",
+  "https://www.climbe.com.br",
   "http://localhost:3000",
   "http://localhost:5173",
   "http://127.0.0.1:5500"
