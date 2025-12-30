@@ -17,6 +17,37 @@ const allowedOrigins = [
   "https://climbei.netlify.app"
 ];
 
+// CORS
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Permite chamadas sem origin (Postman, servidor)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS não permitido para esta origem"));
+      }
+    },
+    methods: ["GET"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// ===== Google Drive Auth =====
+const auth = new google.auth.GoogleAuth({
+  credentials: {
+    type: "service_account",
+    project_id: process.env.GOOGLE_PROJECT_ID,
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+  },
+  scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+});
+
+const drive = google.drive({ version: "v3", auth });
+
 async function listarTodosArquivosComMetadados(folderId) {
   let allFiles = [];
   let pageToken = null;
@@ -229,37 +260,6 @@ async function getPdfMetadata(fileId) {
     return null;
   }
 }
-
-// CORS
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Permite chamadas sem origin (Postman, servidor)
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("CORS não permitido para esta origem"));
-      }
-    },
-    methods: ["GET"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// ===== Google Drive Auth =====
-const auth = new google.auth.GoogleAuth({
-  credentials: {
-    type: "service_account",
-    project_id: process.env.GOOGLE_PROJECT_ID,
-    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-  },
-  scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-});
-
-const drive = google.drive({ version: "v3", auth });
 
 // ===== Relação com Investidores =====
 app.get("/api/ri/acordoSocios", async (req, res) => {
