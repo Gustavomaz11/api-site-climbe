@@ -17,6 +17,40 @@ const allowedOrigins = [
   "https://climbei.netlify.app"
 ];
 
+async function listarTodosArquivosComMetadados(folderId) {
+  let allFiles = [];
+  let pageToken = null;
+
+  do {
+    const response = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false`,
+      fields:
+        "nextPageToken,files(id,name,mimeType,webViewLink,webContentLink,createdTime)",
+      orderBy: "createdTime desc",
+      pageSize: 1000, // máximo permitido pela API
+      pageToken,
+    });
+
+    const files = response.data.files || [];
+
+    allFiles.push(...files);
+    pageToken = response.data.nextPageToken;
+  } while (pageToken);
+
+  // Extrai metadados PDF
+  await Promise.all(
+    allFiles.map(async (file) => {
+      if (file.mimeType === "application/pdf") {
+        file.pdf_metadata = await getPdfMetadata(file.id);
+      } else {
+        file.pdf_metadata = null;
+      }
+    })
+  );
+
+  return allFiles;
+}
+
 async function listarArquivosComMetadados(folderId, pageToken) {
   const PAGE_SIZE = 15;
 
@@ -44,6 +78,129 @@ async function listarArquivosComMetadados(folderId, pageToken) {
 
   return { arquivos, nextPageToken: response.data.nextPageToken || null };
 }
+
+// GET ALL
+app.get("/api/ri/acordoSocios/getAll", async (req, res) => {
+  try {
+    const arquivos = await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_ACORDO_SOCIOS
+    );
+    res.json({ arquivos });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar todos os arquivos" });
+  }
+});
+
+app.get("/api/ri/contratoSocial/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_CONTRATO_SOCIAL
+    )
+  });
+});
+
+app.get("/api/ri/educacaoContinua/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_EDUCACAO_CONTINUA
+    )
+  });
+});
+
+app.get("/api/ri/nps/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_NPS
+    )
+  });
+});
+
+app.get("/api/ri/resultados/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_RESULTADOS
+    )
+  });
+});
+
+app.get("/api/ri/balancoPatrimonial/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_BALANCO_PATRIMONIAL
+    )
+  });
+});
+
+app.get("/api/ri/planejamentoEstrategico/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_PLANEJAMENTO_ESTRATEGICO
+    )
+  });
+});
+
+app.get("/api/ri/nossoValuation/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_NOSSO_VALUATION
+    )
+  });
+});
+
+app.get("/api/ri/compliance/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_COMPLIANCE
+    )
+  });
+});
+
+app.get("/api/ri/atasReunioes/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES
+    )
+  });
+});
+
+app.get("/api/arquivos/nacional/getAll", async (req, res) => {
+  try {
+    const arquivos = await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_ID
+    );
+    res.json({ arquivos });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+  }
+});
+
+app.get("/api/arquivos/internacional/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_INTERNACIONAL
+    )
+  });
+});
+
+app.get("/api/arquivos/cripto/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_CRIPTO
+    )
+  });
+});
+
+app.get("/api/arquivos/artigos/getAll", async (req, res) => {
+  res.json({
+    arquivos: await listarTodosArquivosComMetadados(
+      process.env.GOOGLE_DRIVE_FOLDER_ARTIGO
+    )
+  });
+});
+
+
+// =====================
 
 async function getPdfMetadata(fileId) {
   try {
