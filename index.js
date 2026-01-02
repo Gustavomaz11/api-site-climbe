@@ -46,6 +46,33 @@ const mailTransporter = nodemailer.createTransport({
   }
 });
 
+// ===== Ordenar Atas por data no título (dd/MM/yyyy) =====
+function ordenarAtasPorDataNoTitulo(arquivos) {
+  return arquivos.sort((a, b) => {
+    const regexData = /(\d{2})\/(\d{2})\/(\d{4})/;
+
+    const matchA = a.name?.match(regexData);
+    const matchB = b.name?.match(regexData);
+
+    // Se nenhum tiver data no título, mantém ordem
+    if (!matchA && !matchB) return 0;
+
+    // Quem não tem data vai pro final
+    if (!matchA) return 1;
+    if (!matchB) return -1;
+
+    const [, diaA, mesA, anoA] = matchA;
+    const [, diaB, mesB, anoB] = matchB;
+
+    const dateA = new Date(`${anoA}-${mesA}-${diaA}`);
+    const dateB = new Date(`${anoB}-${mesB}-${diaB}`);
+
+    // Mais recente primeiro
+    return dateB - dateA;
+  });
+}
+
+
 // ===== Google Drive Auth =====
 const auth = new google.auth.GoogleAuth({
   credentials: {
@@ -328,12 +355,24 @@ app.get("/api/ri/compliance/getAll", async (req, res) => {
 
 app.get("/api/ri/atasReunioes/getAll", async (req, res) => {
   try {
-    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES);
-    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+    let arquivos = await listarTodosArquivos(
+      process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES
+    );
+
+    arquivos = ordenarAtasPorDataNoTitulo(arquivos);
+
+    res.json({
+      arquivos,
+      totalItems: arquivos.length,
+      totalPages: 1,
+      pageSize: arquivos.length
+    });
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
+
+
 
 app.get("/api/arquivos/nacional/getAll", async (req, res) => {
   try {
@@ -483,15 +522,36 @@ app.get("/api/ri/compliance", async (req, res) => {
 
 app.get("/api/ri/atasReunioes", async (req, res) => {
   try {
-    const result = await listarArquivosPaginado(
-      process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES,
-      req.query.pageToken
+    const PAGE_SIZE = 15;
+
+    let arquivos = await listarTodosArquivos(
+      process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES
     );
-    res.json(result);
+
+    arquivos = ordenarAtasPorDataNoTitulo(arquivos);
+
+    const page = Number(req.query.page || 1);
+    const start = (page - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+
+    const arquivosPaginados = arquivos.slice(start, end);
+
+    const totalItems = arquivos.length;
+    const totalPages = Math.ceil(totalItems / PAGE_SIZE);
+
+    res.json({
+      arquivos: arquivosPaginados,
+      currentPage: page,
+      totalItems,
+      totalPages,
+      pageSize: PAGE_SIZE
+    });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
+
 
 // ===== Relatórios - Paginado =====
 app.get("/api/arquivos/nacional", async (req, res) => {
