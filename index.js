@@ -4,8 +4,11 @@ const express = require("express");
 const cors = require("cors");
 const { google } = require("googleapis");
 const pdfParse = require("pdf-parse");
+const nodemailer = require("nodemailer")
 
 const app = express();
+app.use(express.json());
+
 const PORT = process.env.PORT || 3000;
 
 const allowedOrigins = [
@@ -21,7 +24,6 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Permite chamadas sem origin (Postman, servidor)
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
@@ -34,6 +36,16 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+const mailTransporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+})
 
 // ===== Google Drive Auth =====
 const auth = new google.auth.GoogleAuth({
@@ -109,6 +121,88 @@ async function listarArquivosComMetadados(folderId, pageToken) {
 
   return { arquivos, nextPageToken: response.data.nextPageToken || null };
 }
+
+app.post("/api/contato", async (req, res) => {
+  const { nome, email, empresa, mensagem } = req.body;
+
+  if (!nome || !email || !empresa || !mensagem) {
+    return res.status(400).json({ error: "Dados obrigatórios ausentes" });
+  }
+
+  try {
+    // 📩 Email para a Climbe
+    await mailTransporter.sendMail({
+      from: `"Site Climbe" <${process.env.SMTP_USER}>`,
+      to: "contato@climbe.com.br",
+      subject: "Novo contato via site",
+      html: `
+        <h2>Novo contato recebido</h2>
+        <p><strong>Nome:</strong> ${nome}</p>
+        <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Empresa:</strong> ${empresa}</p>
+        <p><strong>Mensagem:</strong></p>
+        <p>${mensagem}</p>
+      `,
+    });
+
+    // 📩 Confirmação para o cliente
+    await mailTransporter.sendMail({
+      from: `"Climbe" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Recebemos sua mensagem",
+      html: `
+        <p>Olá, ${nome}!</p>
+        <p>Recebemos sua mensagem e em breve um representante da <strong>Climbe</strong> fará contato.</p>
+        <p>Atenciosamente,<br/>Equipe Climbe</p>
+      `,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro ao enviar email:", error);
+    res.status(500).json({ error: "Erro ao enviar mensagem" });
+  }
+});
+
+
+app.post("/api/newsletter", async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: "Email é obrigatório" });
+  }
+
+  try {
+    // 📩 Email para a Climbe
+    await mailTransporter.sendMail({
+      from: `"Site Climbe" <${process.env.SMTP_USER}>`,
+      to: "contato@climbe.com.br",
+      subject: "Novo cadastro de interesse",
+      html: `
+        <p>Um novo usuário demonstrou interesse:</p>
+        <p><strong>Email:</strong> ${email}</p>
+      `,
+    });
+
+    // 📩 Confirmação para o usuário
+    await mailTransporter.sendMail({
+      from: `"Climbe" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Obrigado pelo seu interesse",
+      html: `
+        <p>Olá!</p>
+        <p>Obrigado por entrar em contato com a <strong>Climbe</strong>.</p>
+        <p>Em breve nossa equipe falará com você.</p>
+      `,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro ao enviar email:", error);
+    res.status(500).json({ error: "Erro ao enviar email" });
+  }
+});
+
 
 // GET ALL
 app.get("/api/ri/acordoSocios/getAll", async (req, res) => {
