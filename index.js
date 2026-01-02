@@ -3,8 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { google } = require("googleapis");
-const pdfParse = require("pdf-parse");
-const nodemailer = require("nodemailer")
+const nodemailer = require("nodemailer");
 
 const app = express();
 app.use(express.json());
@@ -32,7 +31,7 @@ app.use(
         callback(new Error("CORS não permitido para esta origem"));
       }
     },
-    methods: ["GET"],
+    methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -45,7 +44,7 @@ const mailTransporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   }
-})
+});
 
 // ===== Google Drive Auth =====
 const auth = new google.auth.GoogleAuth({
@@ -60,7 +59,62 @@ const auth = new google.auth.GoogleAuth({
 
 const drive = google.drive({ version: "v3", auth });
 
-async function listarTodosArquivosComMetadados(folderId) {
+// ===== Função de Ordenação por Trimestre =====
+function ordenarPorTrimestre(arquivos) {
+  return arquivos.sort((a, b) => {
+    const nameA = a.name || "";
+    const nameB = b.name || "";
+
+    // Captura: número + T + ano (ex: 3T25, 1T24, 4T2025)
+    const quarterRegex = /(\d)T(\d{2,4})/i;
+
+    const matchA = nameA.match(quarterRegex);
+    const matchB = nameB.match(quarterRegex);
+
+    // Se ambos não têm padrão, mantém
+    if (!matchA && !matchB) return 0;
+
+    // Sem padrão vai pro final
+    if (!matchA) return 1;
+    if (!matchB) return -1;
+
+    const quarterA = parseInt(matchA[1], 10);
+    const yearA = parseInt(matchA[2], 10);
+    const quarterB = parseInt(matchB[1], 10);
+    const yearB = parseInt(matchB[2], 10);
+
+    const fullYearA = yearA < 100 ? 2000 + yearA : yearA;
+    const fullYearB = yearB < 100 ? 2000 + yearB : yearB;
+
+    // Ano desc, trimestre desc
+    if (fullYearA !== fullYearB) return fullYearB - fullYearA;
+    return quarterB - quarterA;
+  });
+}
+
+// ===== Contar total de arquivos na pasta (pra calcular páginas) =====
+async function contarArquivos(folderId) {
+  let total = 0;
+  let pageToken = null;
+
+  do {
+    const response = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false`,
+      fields: "nextPageToken,files(id)", // leve: só ID
+      pageSize: 1000,
+      pageToken,
+    });
+
+    const files = response.data.files || [];
+    total += files.length;
+    pageToken = response.data.nextPageToken;
+  } while (pageToken);
+
+  return total;
+}
+
+// ===== GET ALL (sem metadados PDF) =====
+async function listarTodosArquivos(folderId) {
   let allFiles = [];
   let pageToken = null;
 
@@ -69,59 +123,48 @@ async function listarTodosArquivosComMetadados(folderId) {
       q: `'${folderId}' in parents and trashed = false`,
       fields:
         "nextPageToken,files(id,name,mimeType,webViewLink,webContentLink,createdTime)",
-      orderBy: "createdTime desc",
-      pageSize: 1000, // máximo permitido pela API
+      pageSize: 1000,
       pageToken,
     });
 
     const files = response.data.files || [];
-
     allFiles.push(...files);
     pageToken = response.data.nextPageToken;
   } while (pageToken);
 
-  // Extrai metadados PDF
-  await Promise.all(
-    allFiles.map(async (file) => {
-      if (file.mimeType === "application/pdf") {
-        file.pdf_metadata = await getPdfMetadata(file.id);
-      } else {
-        file.pdf_metadata = null;
-      }
-    })
-  );
-
-  return allFiles;
+  return ordenarPorTrimestre(allFiles);
 }
 
-async function listarArquivosComMetadados(folderId, pageToken) {
+// ===== Paginado (com totalPages) =====
+async function listarArquivosPaginado(folderId, pageToken) {
   const PAGE_SIZE = 15;
 
+  // Lista a página atual
   const response = await drive.files.list({
     q: `'${folderId}' in parents and trashed = false`,
     fields:
       "nextPageToken,files(id,name,mimeType,webViewLink,webContentLink,createdTime)",
-    orderBy: "createdTime desc",
     pageSize: PAGE_SIZE,
     pageToken: pageToken || null,
   });
 
-  const arquivos = response.data.files || [];
+  const arquivos = ordenarPorTrimestre(response.data.files || []);
+  const nextPageToken = response.data.nextPageToken || null;
 
-  // Extrai metadados PDF em paralelo limitado
-  await Promise.all(
-    arquivos.map(async (file) => {
-      if (file.mimeType === "application/pdf") {
-        file.pdf_metadata = await getPdfMetadata(file.id);
-      } else {
-        file.pdf_metadata = null;
-      }
-    })
-  );
+  // Calcula totais (pra informar quantas páginas existem)
+  const totalItems = await contarArquivos(folderId);
+  const totalPages = Math.ceil(totalItems / PAGE_SIZE);
 
-  return { arquivos, nextPageToken: response.data.nextPageToken || null };
+  return {
+    arquivos,
+    nextPageToken,
+    totalItems,
+    totalPages,
+    pageSize: PAGE_SIZE,
+  };
 }
 
+// ===== Email Routes =====
 app.post("/api/contato", async (req, res) => {
   const { nome, email, empresa, mensagem } = req.body;
 
@@ -130,7 +173,6 @@ app.post("/api/contato", async (req, res) => {
   }
 
   try {
-    // 📩 Email para a Climbe
     await mailTransporter.sendMail({
       from: `"Site Climbe" <${process.env.SMTP_USER}>`,
       to: "contato@climbe.com.br",
@@ -145,7 +187,6 @@ app.post("/api/contato", async (req, res) => {
       `,
     });
 
-    // 📩 Confirmação para o cliente
     await mailTransporter.sendMail({
       from: `"Climbe" <${process.env.SMTP_USER}>`,
       to: email,
@@ -164,7 +205,6 @@ app.post("/api/contato", async (req, res) => {
   }
 });
 
-
 app.post("/api/newsletter", async (req, res) => {
   const { email } = req.body;
 
@@ -173,7 +213,6 @@ app.post("/api/newsletter", async (req, res) => {
   }
 
   try {
-    // 📩 Email para a Climbe
     await mailTransporter.sendMail({
       from: `"Site Climbe" <${process.env.SMTP_USER}>`,
       to: "contato@climbe.com.br",
@@ -184,7 +223,6 @@ app.post("/api/newsletter", async (req, res) => {
       `,
     });
 
-    // 📩 Confirmação para o usuário
     await mailTransporter.sendMail({
       from: `"Climbe" <${process.env.SMTP_USER}>`,
       to: email,
@@ -203,14 +241,13 @@ app.post("/api/newsletter", async (req, res) => {
   }
 });
 
-
-// GET ALL
+// ===== GET ALL Routes =====
 app.get("/api/ri/acordoSocios/getAll", async (req, res) => {
   try {
-    const arquivos = await listarTodosArquivosComMetadados(
+    const arquivos = await listarTodosArquivos(
       process.env.GOOGLE_DRIVE_FOLDER_ACORDO_SOCIOS
     );
-    res.json({ arquivos });
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar todos os arquivos" });
@@ -218,308 +255,272 @@ app.get("/api/ri/acordoSocios/getAll", async (req, res) => {
 });
 
 app.get("/api/ri/contratoSocial/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_CONTRATO_SOCIAL
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_CONTRATO_SOCIAL);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/educacaoContinua/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_EDUCACAO_CONTINUA
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_EDUCACAO_CONTINUA);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/nps/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_NPS
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_NPS);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/resultados/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_RESULTADOS
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_RESULTADOS);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/balancoPatrimonial/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_BALANCO_PATRIMONIAL
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_BALANCO_PATRIMONIAL);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/planejamentoEstrategico/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_PLANEJAMENTO_ESTRATEGICO
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_PLANEJAMENTO_ESTRATEGICO);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/nossoValuation/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_NOSSO_VALUATION
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_NOSSO_VALUATION);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/compliance/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_COMPLIANCE
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_COMPLIANCE);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/ri/atasReunioes/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/arquivos/nacional/getAll", async (req, res) => {
   try {
-    const arquivos = await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_ID
-    );
-    res.json({ arquivos });
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_ID);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
   }
 });
 
 app.get("/api/arquivos/internacional/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_INTERNACIONAL
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_INTERNACIONAL);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/arquivos/cripto/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_CRIPTO
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_CRIPTO);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
 app.get("/api/arquivos/artigos/getAll", async (req, res) => {
-  res.json({
-    arquivos: await listarTodosArquivosComMetadados(
-      process.env.GOOGLE_DRIVE_FOLDER_ARTIGO
-    )
-  });
+  try {
+    const arquivos = await listarTodosArquivos(process.env.GOOGLE_DRIVE_FOLDER_ARTIGO);
+    res.json({ arquivos, totalItems: arquivos.length, totalPages: 1, pageSize: arquivos.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
 });
 
-
-// =====================
-
-async function getPdfMetadata(fileId) {
-  try {
-    const response = await drive.files.get(
-      { fileId, alt: "media" },
-      { responseType: "arraybuffer" }
-    );
-
-    const buffer = Buffer.from(response.data);
-
-    const parser = pdfParse.default || pdfParse;
-    const data = await parser(buffer);
-
-    return {
-      author: data.info?.Author || null,
-      title: data.info?.Title || null,
-      producer: data.info?.Producer || null,
-      creator: data.info?.Creator || null,
-      pdf_version: data.info?.PDFFormatVersion || null,
-      create_date: data.info?.CreationDate || null,
-      modify_date: data.info?.ModDate || null,
-      page_count: data.numpages || null,
-    };
-  } catch (err) {
-    console.error("Erro ao ler PDF:", err.message);
-    return null;
-  }
-}
-
-// ===== Relação com Investidores =====
+// ===== Relação com Investidores - Paginado =====
 app.get("/api/ri/acordoSocios", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_ACORDO_SOCIOS,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
-
 app.get("/api/ri/contratoSocial", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_CONTRATO_SOCIAL,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
-
 app.get("/api/ri/educacaoContinua", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_EDUCACAO_CONTINUA,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
-
 app.get("/api/ri/nps", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_NPS,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
 app.get("/api/ri/resultados", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_RESULTADOS,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
 app.get("/api/ri/balancoPatrimonial", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_BALANCO_PATRIMONIAL,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
 app.get("/api/ri/planejamentoEstrategico", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_PLANEJAMENTO_ESTRATEGICO,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
 app.get("/api/ri/nossoValuation", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_NOSSO_VALUATION,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
 app.get("/api/ri/compliance", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_COMPLIANCE,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
 app.get("/api/ri/atasReunioes", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_ATAS_REUNIOES,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
   }
 });
 
-// ===== Relatórios =====
+// ===== Relatórios - Paginado =====
 app.get("/api/arquivos/nacional", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_ID,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Erro ao buscar arquivos nacionais" });
   }
 });
 
 app.get("/api/arquivos/internacional", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_INTERNACIONAL,
       req.query.pageToken
     );
     res.json(result);
   } catch (err) {
-    res
-      .status(500)
-      .json({ error: "Erro ao buscar arquivos internacionais" });
+    res.status(500).json({ error: "Erro ao buscar arquivos internacionais" });
   }
 });
 
 app.get("/api/arquivos/cripto", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_CRIPTO,
       req.query.pageToken
     );
@@ -529,10 +530,9 @@ app.get("/api/arquivos/cripto", async (req, res) => {
   }
 });
 
-// ==== Artigos =====
 app.get("/api/arquivos/artigos", async (req, res) => {
   try {
-    const result = await listarArquivosComMetadados(
+    const result = await listarArquivosPaginado(
       process.env.GOOGLE_DRIVE_FOLDER_ARTIGO,
       req.query.pageToken
     );
