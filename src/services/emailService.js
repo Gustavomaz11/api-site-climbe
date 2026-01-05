@@ -2,7 +2,7 @@ const { mailTransporter } = require("../config/mail");
 
 async function enviarEmailContato({ nome, email, empresa, mensagem }) {
   const fromContato = {
-    name: nome ? `${nome} - Site` : "Site Climbe",
+    name: nome || "Site Climbe",
     address: process.env.SMTP_USER,
   };
 
@@ -10,6 +10,7 @@ async function enviarEmailContato({ nome, email, empresa, mensagem }) {
     from: fromContato,
     to: "contato@climbe.com.br",
     subject: "Novo contato via site",
+    replyTo: { name: nome || "Contato do Site", address: email },
     html: `
         <h2>Novo contato recebido</h2>
         <p><strong>Nome:</strong> ${nome}</p>
