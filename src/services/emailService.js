@@ -1,8 +1,13 @@
 const { mailTransporter } = require("../config/mail");
 
 async function enviarEmailContato({ nome, email, empresa, mensagem }) {
+  const fromContato = {
+    name: nome ? `${nome} - Site` : "Site Climbe",
+    address: process.env.SMTP_USER,
+  };
+
   await mailTransporter.sendMail({
-    from: `"Site Climbe" <${process.env.SMTP_USER}>`,
+    from: fromContato,
     to: "contato@climbe.com.br",
     subject: "Novo contato via site",
     html: `
@@ -16,7 +21,7 @@ async function enviarEmailContato({ nome, email, empresa, mensagem }) {
   });
 
   await mailTransporter.sendMail({
-    from: `"Climbe" <${process.env.SMTP_USER}>`,
+    from: { name: "Climbe", address: process.env.SMTP_USER },
     to: email,
     subject: "Recebemos sua mensagem",
     html: `
@@ -29,7 +34,7 @@ async function enviarEmailContato({ nome, email, empresa, mensagem }) {
 
 async function enviarEmailNewsletter(email) {
   await mailTransporter.sendMail({
-    from: `"Site Climbe" <${process.env.SMTP_USER}>`,
+    from: { name: "Site Climbe", address: process.env.SMTP_USER },
     to: "contato@climbe.com.br",
     subject: "Novo cadastro de interesse",
     html: `
@@ -39,7 +44,7 @@ async function enviarEmailNewsletter(email) {
   });
 
   await mailTransporter.sendMail({
-    from: `"Climbe" <${process.env.SMTP_USER}>`,
+    from: { name: "Climbe", address: process.env.SMTP_USER },
     to: email,
     subject: "Obrigado pelo seu interesse",
     html: `
